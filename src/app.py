@@ -6,9 +6,14 @@ from utils import (
     handle_file_upload,
     display_results,
     export_results,
-    initialize_session_state
+    initialize_session_state,
+    handle_column_customization
 )
 import logging
+import os
+
+# Ensure logs directory exists
+os.makedirs('logs', exist_ok=True)
 
 # Configure logging
 logging.basicConfig(
@@ -31,6 +36,9 @@ def main():
         # Initialize Gemini processor
         processor = GeminiProcessor()
         
+        # Handle column customization in sidebar
+        handle_column_customization(processor)
+        
         # File uploader section
         uploaded_files = handle_file_upload()
         
@@ -41,8 +49,11 @@ def main():
                 
             # Display and export results
             if results:
-                display_results(results)
-                export_results(results)
+                df = display_results(results, processor)
+                export_results(results, processor)
+                
+                # Show success message
+                st.success(f"Successfully processed {len(results)} image(s)")
                 
         # Add clear button
         if st.button('Clear All'):
@@ -52,6 +63,7 @@ def main():
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
         st.error(f"An error occurred: {str(e)}")
+        st.error("Please check the logs for more details")
 
 if __name__ == "__main__":
     main() 
