@@ -26,14 +26,27 @@ class GeminiProcessor:
     Attributes:
         model: The Gemini vision model instance
         max_retries: Maximum number of retries for failed API calls
+        output_columns: Custom column names for output
+        separate_sheets: Whether to create separate sheets for each image in Excel
     """
     
-    def __init__(self, max_retries: int = 3):
+    DEFAULT_COLUMNS = {
+        'filename': 'Filename',
+        'extracted_text': 'Extracted Text',
+        'confidence_score': 'Confidence Score',
+        'status': 'Status',
+        'error': 'Error',
+        'processing_time': 'Processing Time (s)'
+    }
+    
+    def __init__(self, max_retries: int = 3, custom_columns: Dict[str, str] = None, separate_sheets: bool = False):
         """
         Initialize the Gemini processor.
         
         Args:
             max_retries (int): Maximum number of retries for failed API calls
+            custom_columns (Dict[str, str]): Custom column names for output
+            separate_sheets (bool): Whether to create separate sheets for each image in Excel
             
         Raises:
             ValueError: If GOOGLE_API_KEY environment variable is not found
@@ -45,13 +58,27 @@ class GeminiProcessor:
                 raise ValueError("Valid GOOGLE_API_KEY environment variable not found")
             
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-pro-vision')
+            self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
             self.max_retries = max_retries
+            self.output_columns = {**self.DEFAULT_COLUMNS, **(custom_columns or {})}
+            self.separate_sheets = separate_sheets
             logger.info("Successfully initialized Gemini processor")
             
         except Exception as e:
             logger.error(f"Error initializing Gemini processor: {str(e)}")
             raise
+    
+    def get_column_names(self) -> Dict[str, str]:
+        """Get the current column names mapping"""
+        return self.output_columns
+    
+    def set_column_names(self, custom_columns: Dict[str, str]) -> None:
+        """Update column names mapping"""
+        self.output_columns = {**self.DEFAULT_COLUMNS, **custom_columns}
+    
+    def set_separate_sheets(self, separate_sheets: bool) -> None:
+        """Update separate sheets setting"""
+        self.separate_sheets = separate_sheets
     
     def _validate_image(self, image_file) -> Optional[str]:
         """
@@ -203,11 +230,16 @@ class GeminiProcessor:
         results = []
         total_files = len(image_files)
         
+        # Create progress container
+        progress_container = st.empty()
+        status_container = st.empty()
+        
         for idx, image_file in enumerate(image_files, 1):
             try:
-                # Update progress bar
+                # Update progress bar and status
                 progress = idx / total_files
-                st.progress(progress, text=f"Processing image {idx} of {total_files}")
+                progress_container.progress(progress)
+                status_container.text(f"Processing image {idx} of {total_files}: {image_file.name}")
                 
                 result = self._process_single_image(image_file)
                 results.append(result)
@@ -218,5 +250,9 @@ class GeminiProcessor:
                     getattr(image_file, 'name', f'image_{idx}'),
                     f"Unexpected error: {str(e)}"
                 ))
+        
+        # Clear progress indicators
+        progress_container.empty()
+        status_container.empty()
             
         return results 

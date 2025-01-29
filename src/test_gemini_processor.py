@@ -87,6 +87,51 @@ class TestGeminiProcessor(unittest.TestCase):
         """Test processing with empty image list"""
         result = self.processor.process_images([])
         self.assertEqual(result, [])
+    
+    def test_custom_column_names(self):
+        """Test custom column name functionality"""
+        custom_columns = {
+            'filename': 'File Name',
+            'extracted_text': 'OCR Text'
+        }
+        
+        # Test setting custom columns
+        self.processor.set_column_names(custom_columns)
+        current_columns = self.processor.get_column_names()
+        
+        self.assertEqual(current_columns['filename'], 'File Name')
+        self.assertEqual(current_columns['extracted_text'], 'OCR Text')
+        
+        # Test that non-customized columns retain default names
+        self.assertEqual(current_columns['status'], 'Status')
+    
+    def test_separate_sheets_setting(self):
+        """Test separate sheets setting"""
+        # Test default value
+        self.assertFalse(self.processor.separate_sheets)
+        
+        # Test setting to True
+        self.processor.set_separate_sheets(True)
+        self.assertTrue(self.processor.separate_sheets)
+        
+        # Test setting back to False
+        self.processor.set_separate_sheets(False)
+        self.assertFalse(self.processor.separate_sheets)
+    
+    def test_initialization_with_custom_settings(self):
+        """Test initialization with custom settings"""
+        custom_columns = {'filename': 'Custom File Name'}
+        
+        with patch('google.generativeai.configure'):
+            processor = GeminiProcessor(
+                max_retries=5,
+                custom_columns=custom_columns,
+                separate_sheets=True
+            )
+        
+        self.assertEqual(processor.max_retries, 5)
+        self.assertEqual(processor.output_columns['filename'], 'Custom File Name')
+        self.assertTrue(processor.separate_sheets)
 
 if __name__ == '__main__':
     unittest.main() 
