@@ -39,12 +39,14 @@ def main():
         # Handle column customization in sidebar
         handle_column_customization(processor)
         
-        # File uploader section with descriptions
-        uploaded_files, descriptions = handle_file_upload()
+        # File uploader section with common description
+        uploaded_files, common_description, should_process = handle_file_upload()
         
-        if uploaded_files:
-            # Process images with descriptions
+        if uploaded_files and should_process:
+            # Process images with common description
             with st.spinner('Processing images...'):
+                # Create descriptions dictionary with common description
+                descriptions = {file.name: common_description for file in uploaded_files}
                 results = processor.process_images(uploaded_files, descriptions)
                 
             # Display and export results

@@ -117,45 +117,96 @@ class GeminiProcessor:
             str: Formatted text in markdown table format
         """
         try:
-            # Split text into lines
+            # Split text into lines and clean up
             lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # Initialize data dictionary
-            data = {
-                'Patient Details': [],
-                'Contact Information': [],
-                'Medical Records': [],
-                'Other Information': []
+            # Initialize structured data
+            structured_data = {
+                'Patient Information': {
+                    'fields': ['Name', 'Age', 'Sex', 'ID'],
+                    'data': {}
+                },
+                'Contact Details': {
+                    'fields': ['Address', 'Mobile', 'Phone'],
+                    'data': {}
+                },
+                'Medical Records': {
+                    'fields': ['Test ID', 'Lab ID', 'Record Number', 'Vehicle Registration'],
+                    'data': {}
+                }
             }
             
-            # Categorize information
+            # Process each line
             for line in lines:
-                if any(keyword in line.lower() for keyword in ['name', 'age', 'sex', 'gender']):
-                    data['Patient Details'].append(line)
-                elif any(keyword in line.lower() for keyword in ['address', 'mobile', 'phone', 'contact']):
-                    data['Contact Information'].append(line)
-                elif any(keyword in line.lower() for keyword in ['id', 'test', 'lab', 'record']):
-                    data['Medical Records'].append(line)
+                # Convert to lowercase for matching but keep original for display
+                line_lower = line.lower()
+                
+                # Try to split into field and value
+                if ':' in line:
+                    field, value = line.split(':', 1)
                 else:
-                    data['Other Information'].append(line)
+                    # Try to identify field and value based on common patterns
+                    for pattern in ['name', 'age', 'sex', 'address', 'mobile', 'phone', 'id']:
+                        if pattern in line_lower:
+                            parts = line_lower.split(pattern)
+                            if len(parts) == 2:
+                                field = pattern.title()
+                                value = parts[1]
+                                break
+                    else:
+                        continue
+                
+                field = field.strip()
+                value = value.strip()
+                
+                # Categorize the field
+                field_lower = field.lower()
+                if any(f.lower() in field_lower for f in structured_data['Patient Information']['fields']):
+                    structured_data['Patient Information']['data'][field] = value
+                elif any(f.lower() in field_lower for f in structured_data['Contact Details']['fields']):
+                    structured_data['Contact Details']['data'][field] = value
+                elif any(f.lower() in field_lower for f in structured_data['Medical Records']['fields']):
+                    structured_data['Medical Records']['data'][field] = value
             
-            # Format as markdown table
-            formatted_text = "## Extracted Information\n\n"
-            for category, items in data.items():
-                if items:
-                    formatted_text += f"### {category}\n"
+            # Format as markdown tables
+            formatted_text = ""
+            
+            for category, info in structured_data.items():
+                if info['data']:
+                    formatted_text += f"\n### {category}\n\n"
                     formatted_text += "| Field | Value |\n"
                     formatted_text += "|-------|--------|\n"
-                    for item in items:
-                        # Try to split into field and value
-                        if ':' in item:
-                            field, value = item.split(':', 1)
-                        else:
-                            field, value = item, ''
-                        formatted_text += f"| {field.strip()} | {value.strip()} |\n"
+                    
+                    # Sort fields based on the predefined order
+                    sorted_fields = sorted(
+                        info['data'].keys(),
+                        key=lambda x: next(
+                            (i for i, f in enumerate(info['fields']) if f.lower() in x.lower()),
+                            len(info['fields'])
+                        )
+                    )
+                    
+                    for field in sorted_fields:
+                        value = info['data'][field]
+                        formatted_text += f"| {field} | {value} |\n"
+                    
                     formatted_text += "\n"
             
-            return formatted_text
+            # Add any unmatched data in a separate table
+            unmatched = [line for line in lines if ':' in line and 
+                        not any(field.lower() in line.lower() 
+                               for info in structured_data.values() 
+                               for field in info['fields'])]
+            
+            if unmatched:
+                formatted_text += "\n### Additional Information\n\n"
+                formatted_text += "| Field | Value |\n"
+                formatted_text += "|-------|--------|\n"
+                for line in unmatched:
+                    field, value = line.split(':', 1)
+                    formatted_text += f"| {field.strip()} | {value.strip()} |\n"
+            
+            return formatted_text if formatted_text.strip() else text
             
         except Exception as e:
             logger.warning(f"Error in formatting medical data: {str(e)}")

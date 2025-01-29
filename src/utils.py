@@ -25,15 +25,15 @@ def initialize_session_state():
         st.session_state.custom_columns = {}
     if 'separate_sheets' not in st.session_state:
         st.session_state.separate_sheets = False
-    if 'image_descriptions' not in st.session_state:
-        st.session_state.image_descriptions = {}
+    if 'common_description' not in st.session_state:
+        st.session_state.common_description = ""
 
-def handle_file_upload() -> Tuple[List[Any], Dict[str, str]]:
+def handle_file_upload() -> Tuple[List[Any], str, bool]:
     """
-    Handle file upload and collect image descriptions.
+    Handle file upload and collect common description.
     
     Returns:
-        Tuple[List[Any], Dict[str, str]]: Uploaded files and their descriptions
+        Tuple[List[Any], str, bool]: Uploaded files, common description, and process flag
     """
     uploaded_files = st.file_uploader(
         "Upload images (JPG, JPEG, PNG, WEBP)",
@@ -41,31 +41,38 @@ def handle_file_upload() -> Tuple[List[Any], Dict[str, str]]:
         accept_multiple_files=True
     )
     
-    descriptions = {}
+    process_flag = False
+    common_description = ""
     
     if uploaded_files:
         if len(uploaded_files) > 100:
             st.error("Maximum 100 images allowed per batch")
-            return None, {}
+            return None, "", False
             
         for file in uploaded_files:
             if file.size > 20 * 1024 * 1024:  # 20MB
                 st.error(f"File {file.name} exceeds 20MB size limit")
-                return None, {}
-            
-            # Get description for each file
-            description = st.text_area(
-                f"Description for {file.name}",
-                value=st.session_state.image_descriptions.get(file.name, ""),
-                key=f"desc_{file.name}",
-                help="Provide context or specific instructions for processing this image"
-            )
-            descriptions[file.name] = description
+                return None, "", False
         
-        # Update session state
-        st.session_state.image_descriptions.update(descriptions)
+        # Get common description for all files
+        st.write("### Image Processing Settings")
+        common_description = st.text_area(
+            "Description/Context for all images",
+            value=st.session_state.common_description,
+            help="Provide context or specific instructions for processing these images. This will help in better text extraction and structuring.",
+            key="common_desc"
+        )
+        
+        # Add process button
+        if st.button("Process Images"):
+            if not common_description.strip():
+                st.warning("Please provide a description before processing")
+                return uploaded_files, "", False
+            
+            st.session_state.common_description = common_description
+            process_flag = True
                 
-    return uploaded_files, descriptions
+    return uploaded_files, common_description, process_flag
 
 def handle_column_customization(processor):
     """Handle column name customization"""
@@ -113,10 +120,6 @@ def display_results(results: List[Dict[str, Any]], processor):
     # Display each result in an expander
     for result in results:
         with st.expander(f"Results for {result['filename']}", expanded=True):
-            if result.get('description'):
-                st.write("**Image Description:**")
-                st.write(result['description'])
-            
             # Display extracted text as markdown
             st.markdown(result['extracted_text'])
     
