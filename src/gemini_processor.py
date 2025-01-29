@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class GeminiProcessor:
@@ -23,8 +24,7 @@ class GeminiProcessor:
     error management.
     
     Attributes:
-        client: The Gemini API client instance
-        model: The name of the Gemini model to use
+        model: The Gemini vision model instance
         max_retries: Maximum number of retries for failed API calls
     """
     
@@ -103,21 +103,33 @@ class GeminiProcessor:
                 image_bytes = image_file.getvalue()
                 image = Image.open(io.BytesIO(image_bytes))
                 
-                # Prepare prompt
+                # Prepare prompt for medical form processing
                 prompt = """
-                Extract all text from this image. Format the output as plain text.
-                Focus on accuracy and maintain the original formatting where possible.
+                Extract all text from this medical form image. Pay special attention to:
+                1. Patient details (Name, Age, Sex)
+                2. Contact information (Address, Mobile number)
+                3. Medical record numbers or IDs
+                4. Test results or medical observations
+                
+                Format the output as structured text, maintaining the original layout.
+                Ensure accuracy in numbers and medical terminology.
                 If there are any tables, preserve the tabular structure.
                 """
                 
                 # Process with Gemini
                 response = self.model.generate_content([prompt, image])
                 
+                if not response or not response.text:
+                    raise ValueError("No text extracted from the image")
+                
                 processing_time = time.time() - start_time
+                
+                # Post-process the extracted text
+                extracted_text = self._post_process_text(response.text)
                 
                 return {
                     'filename': image_file.name,
-                    'extracted_text': response.text,
+                    'extracted_text': extracted_text,
                     'confidence_score': 1.0,  # Placeholder as Gemini doesn't provide confidence scores
                     'status': 'success',
                     'error': None,
@@ -129,6 +141,30 @@ class GeminiProcessor:
                 if attempt == self.max_retries - 1:
                     return self._create_error_response(image_file.name, str(e))
                 time.sleep(1)  # Wait before retrying
+    
+    def _post_process_text(self, text: str) -> str:
+        """
+        Post-process the extracted text to improve formatting and readability.
+        
+        Args:
+            text (str): Raw extracted text
+            
+        Returns:
+            str: Processed and formatted text
+        """
+        try:
+            # Remove extra whitespace
+            text = ' '.join(text.split())
+            
+            # Split into lines for better readability
+            lines = text.split('.')
+            formatted_text = '.\n'.join(line.strip() for line in lines if line.strip())
+            
+            return formatted_text
+            
+        except Exception as e:
+            logger.warning(f"Error in post-processing text: {str(e)}")
+            return text  # Return original text if processing fails
     
     def _create_error_response(self, filename: str, error_message: str) -> Dict[str, Any]:
         """
@@ -168,11 +204,19 @@ class GeminiProcessor:
         total_files = len(image_files)
         
         for idx, image_file in enumerate(image_files, 1):
-            # Update progress bar
-            progress = idx / total_files
-            st.progress(progress, text=f"Processing image {idx} of {total_files}")
-            
-            result = self._process_single_image(image_file)
-            results.append(result)
+            try:
+                # Update progress bar
+                progress = idx / total_files
+                st.progress(progress, text=f"Processing image {idx} of {total_files}")
+                
+                result = self._process_single_image(image_file)
+                results.append(result)
+                
+            except Exception as e:
+                logger.error(f"Error processing image {idx}: {str(e)}")
+                results.append(self._create_error_response(
+                    getattr(image_file, 'name', f'image_{idx}'),
+                    f"Unexpected error: {str(e)}"
+                ))
             
         return results 
