@@ -7,6 +7,7 @@ import io
 import logging
 import os
 from dotenv import load_dotenv
+import pandas as pd
 
 # Load environment variables
 load_dotenv()
@@ -33,10 +34,7 @@ class GeminiProcessor:
     DEFAULT_COLUMNS = {
         'filename': 'Filename',
         'extracted_text': 'Extracted Text',
-        'confidence_score': 'Confidence Score',
-        'status': 'Status',
-        'error': 'Error',
-        'processing_time': 'Processing Time (s)'
+        'description': 'Image Description'
     }
     
     def __init__(self, max_retries: int = 3, custom_columns: Dict[str, str] = None, separate_sheets: bool = False):
@@ -108,12 +106,68 @@ class GeminiProcessor:
         except Exception as e:
             return f"Error validating image: {str(e)}"
     
-    def _process_single_image(self, image_file) -> Dict[str, Any]:
+    def _format_medical_data(self, text: str) -> str:
+        """
+        Format medical form data into a structured table format.
+        
+        Args:
+            text (str): Raw extracted text
+            
+        Returns:
+            str: Formatted text in markdown table format
+        """
+        try:
+            # Split text into lines
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            
+            # Initialize data dictionary
+            data = {
+                'Patient Details': [],
+                'Contact Information': [],
+                'Medical Records': [],
+                'Other Information': []
+            }
+            
+            # Categorize information
+            for line in lines:
+                if any(keyword in line.lower() for keyword in ['name', 'age', 'sex', 'gender']):
+                    data['Patient Details'].append(line)
+                elif any(keyword in line.lower() for keyword in ['address', 'mobile', 'phone', 'contact']):
+                    data['Contact Information'].append(line)
+                elif any(keyword in line.lower() for keyword in ['id', 'test', 'lab', 'record']):
+                    data['Medical Records'].append(line)
+                else:
+                    data['Other Information'].append(line)
+            
+            # Format as markdown table
+            formatted_text = "## Extracted Information\n\n"
+            for category, items in data.items():
+                if items:
+                    formatted_text += f"### {category}\n"
+                    formatted_text += "| Field | Value |\n"
+                    formatted_text += "|-------|--------|\n"
+                    for item in items:
+                        # Try to split into field and value
+                        if ':' in item:
+                            field, value = item.split(':', 1)
+                        else:
+                            field, value = item, ''
+                        formatted_text += f"| {field.strip()} | {value.strip()} |\n"
+                    formatted_text += "\n"
+            
+            return formatted_text
+            
+        except Exception as e:
+            logger.warning(f"Error in formatting medical data: {str(e)}")
+            return text
+    
+    def _process_single_image(self, image_file, description: str = "") -> Dict[str, Any]:
         """
         Process a single image and extract text.
         
         Args:
             image_file: The image file to process
+            description (str): Optional description of the image to guide processing
             
         Returns:
             Dict[str, Any]: Processing results including extracted text and metadata
@@ -131,16 +185,20 @@ class GeminiProcessor:
                 image = Image.open(io.BytesIO(image_bytes))
                 
                 # Prepare prompt for medical form processing
-                prompt = """
-                Extract all text from this medical form image. Pay special attention to:
+                prompt = f"""
+                Extract and structure information from this medical form image.
+                
+                Image Context: {description if description else 'Medical form containing patient information'}
+                
+                Please extract:
                 1. Patient details (Name, Age, Sex)
                 2. Contact information (Address, Mobile number)
                 3. Medical record numbers or IDs
                 4. Test results or medical observations
                 
-                Format the output as structured text, maintaining the original layout.
-                Ensure accuracy in numbers and medical terminology.
-                If there are any tables, preserve the tabular structure.
+                Format the information clearly, preserving relationships between fields and values.
+                Maintain the original structure of the form.
+                If there are tables, preserve the tabular format.
                 """
                 
                 # Process with Gemini
@@ -149,18 +207,13 @@ class GeminiProcessor:
                 if not response or not response.text:
                     raise ValueError("No text extracted from the image")
                 
-                processing_time = time.time() - start_time
-                
-                # Post-process the extracted text
-                extracted_text = self._post_process_text(response.text)
+                # Format the extracted text
+                formatted_text = self._format_medical_data(response.text)
                 
                 return {
                     'filename': image_file.name,
-                    'extracted_text': extracted_text,
-                    'confidence_score': 1.0,  # Placeholder as Gemini doesn't provide confidence scores
-                    'status': 'success',
-                    'error': None,
-                    'processing_time': round(processing_time, 2)
+                    'extracted_text': formatted_text,
+                    'description': description
                 }
                 
             except Exception as e:
@@ -168,30 +221,6 @@ class GeminiProcessor:
                 if attempt == self.max_retries - 1:
                     return self._create_error_response(image_file.name, str(e))
                 time.sleep(1)  # Wait before retrying
-    
-    def _post_process_text(self, text: str) -> str:
-        """
-        Post-process the extracted text to improve formatting and readability.
-        
-        Args:
-            text (str): Raw extracted text
-            
-        Returns:
-            str: Processed and formatted text
-        """
-        try:
-            # Remove extra whitespace
-            text = ' '.join(text.split())
-            
-            # Split into lines for better readability
-            lines = text.split('.')
-            formatted_text = '.\n'.join(line.strip() for line in lines if line.strip())
-            
-            return formatted_text
-            
-        except Exception as e:
-            logger.warning(f"Error in post-processing text: {str(e)}")
-            return text  # Return original text if processing fails
     
     def _create_error_response(self, filename: str, error_message: str) -> Dict[str, Any]:
         """
@@ -206,19 +235,17 @@ class GeminiProcessor:
         """
         return {
             'filename': filename,
-            'extracted_text': None,
-            'confidence_score': None,
-            'status': 'error',
-            'error': error_message,
-            'processing_time': None
+            'extracted_text': f"Error: {error_message}",
+            'description': None
         }
     
-    def process_images(self, image_files: List[Any]) -> List[Dict[str, Any]]:
+    def process_images(self, image_files: List[Any], descriptions: Dict[str, str] = None) -> List[Dict[str, Any]]:
         """
         Process multiple images and return results.
         
         Args:
             image_files (List[Any]): List of image files to process
+            descriptions (Dict[str, str]): Optional mapping of filenames to descriptions
             
         Returns:
             List[Dict[str, Any]]: List of processing results for each image
@@ -229,6 +256,7 @@ class GeminiProcessor:
             
         results = []
         total_files = len(image_files)
+        descriptions = descriptions or {}
         
         # Create progress container
         progress_container = st.empty()
@@ -241,7 +269,10 @@ class GeminiProcessor:
                 progress_container.progress(progress)
                 status_container.text(f"Processing image {idx} of {total_files}: {image_file.name}")
                 
-                result = self._process_single_image(image_file)
+                # Get description for this image
+                description = descriptions.get(image_file.name, "")
+                
+                result = self._process_single_image(image_file, description)
                 results.append(result)
                 
             except Exception as e:

@@ -39,13 +39,13 @@ def main():
         # Handle column customization in sidebar
         handle_column_customization(processor)
         
-        # File uploader section
-        uploaded_files = handle_file_upload()
+        # File uploader section with descriptions
+        uploaded_files, descriptions = handle_file_upload()
         
         if uploaded_files:
-            # Process images
+            # Process images with descriptions
             with st.spinner('Processing images...'):
-                results = processor.process_images(uploaded_files)
+                results = processor.process_images(uploaded_files, descriptions)
                 
             # Display and export results
             if results:

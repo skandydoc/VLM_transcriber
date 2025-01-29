@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 import os
 
 def setup_page():
@@ -25,26 +25,47 @@ def initialize_session_state():
         st.session_state.custom_columns = {}
     if 'separate_sheets' not in st.session_state:
         st.session_state.separate_sheets = False
+    if 'image_descriptions' not in st.session_state:
+        st.session_state.image_descriptions = {}
 
-def handle_file_upload() -> List[Any]:
-    """Handle file upload and validation"""
+def handle_file_upload() -> Tuple[List[Any], Dict[str, str]]:
+    """
+    Handle file upload and collect image descriptions.
+    
+    Returns:
+        Tuple[List[Any], Dict[str, str]]: Uploaded files and their descriptions
+    """
     uploaded_files = st.file_uploader(
         "Upload images (JPG, JPEG, PNG, WEBP)",
         type=['jpg', 'jpeg', 'png', 'webp'],
         accept_multiple_files=True
     )
     
+    descriptions = {}
+    
     if uploaded_files:
         if len(uploaded_files) > 100:
             st.error("Maximum 100 images allowed per batch")
-            return None
+            return None, {}
             
         for file in uploaded_files:
             if file.size > 20 * 1024 * 1024:  # 20MB
                 st.error(f"File {file.name} exceeds 20MB size limit")
-                return None
+                return None, {}
+            
+            # Get description for each file
+            description = st.text_area(
+                f"Description for {file.name}",
+                value=st.session_state.image_descriptions.get(file.name, ""),
+                key=f"desc_{file.name}",
+                help="Provide context or specific instructions for processing this image"
+            )
+            descriptions[file.name] = description
+        
+        # Update session state
+        st.session_state.image_descriptions.update(descriptions)
                 
-    return uploaded_files
+    return uploaded_files, descriptions
 
 def handle_column_customization(processor):
     """Handle column name customization"""
@@ -82,18 +103,26 @@ def handle_column_customization(processor):
         processor.set_separate_sheets(separate_sheets)
 
 def display_results(results: List[Dict[str, Any]], processor):
-    """Display processing results in a table"""
+    """Display processing results with markdown support"""
     if not results:
         return
-        
+    
     # Get custom column names
     columns = processor.get_column_names()
     
-    # Create DataFrame with custom column names
+    # Display each result in an expander
+    for result in results:
+        with st.expander(f"Results for {result['filename']}", expanded=True):
+            if result.get('description'):
+                st.write("**Image Description:**")
+                st.write(result['description'])
+            
+            # Display extracted text as markdown
+            st.markdown(result['extracted_text'])
+    
+    # Create DataFrame for export
     df = pd.DataFrame(results)
     df = df.rename(columns=columns)
-    
-    st.dataframe(df, use_container_width=True)
     return df
 
 def export_results(results: List[Dict[str, Any]], processor):
