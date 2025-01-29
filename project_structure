@@ -1,0 +1,15 @@
+VLM_transcriber/
+├── .gitignore
+├── .streamlit/
+│   └── config.toml
+├── README.md
+├── requirements.txt
+├── src/
+│   ├── __init__.py
+│   ├── app.py
+│   ├── config.py
+│   ├── gemini_processor.py
+│   ├── utils.py
+│   └── validators.py
+└── logs/
+    └── .gitkeep 
